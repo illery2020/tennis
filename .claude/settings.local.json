@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /Users/arakitakahiro/Study/claude-code/tennis mv:*)",
+      "Bash(git -C:*)",
+      "Bash(git -C /Users/arakitakahiro/Study/claude-code/tennis push)"
+    ]
+  }
+}

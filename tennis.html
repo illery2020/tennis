@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>テニスゲーム</title>
+  <style>
+    /* 全体レイアウト */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background-color: #1a1a2e;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: 'Courier New', monospace;
+      color: #e0e0e0;
+    }
+
+    h1 {
+      font-size: 2rem;
+      letter-spacing: 0.2em;
+      margin-bottom: 12px;
+      color: #f0c040;
+      text-shadow: 0 0 10px #f0c04088;
+    }
+
+    /* スコア表示エリア */
+    #スコアボード {
+      display: flex;
+      gap: 60px;
+      margin-bottom: 10px;
+      font-size: 1.1rem;
+    }
+
+    .プレイヤー名 {
+      color: #80d8ff;
+      font-weight: bold;
+    }
+
+    .スコア数字 {
+      font-size: 2.5rem;
+      font-weight: bold;
+      color: #ffffff;
+      text-align: center;
+      min-width: 60px;
+    }
+
+    .スコアグループ {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* ゲームキャンバス */
+    #コート {
+      border: 3px solid #4a90d9;
+      border-radius: 4px;
+      box-shadow: 0 0 30px #4a90d944;
+      background-color: #16213e;
+      cursor: none;
+    }
+
+    /* メッセージオーバーレイ */
+    #メッセージ表示 {
+      margin-top: 14px;
+      font-size: 1.2rem;
+      color: #a0e0a0;
+      min-height: 1.6em;
+      text-align: center;
+      letter-spacing: 0.1em;
+    }
+
+    /* 操作説明 */
+    #操作説明 {
+      margin-top: 16px;
+      font-size: 0.82rem;
+      color: #888;
+      text-align: center;
+      line-height: 1.8;
+    }
+
+    #操作説明 span {
+      color: #aaa;
+    }
+
+    /* 難易度選択 */
+    #難易度エリア {
+      margin-top: 14px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      font-size: 0.9rem;
+      color: #aaa;
+    }
+
+    .難易度ボタン {
+      padding: 4px 14px;
+      border: 1px solid #555;
+      border-radius: 20px;
+      background: transparent;
+      color: #aaa;
+      cursor: pointer;
+      font-family: 'Courier New', monospace;
+      font-size: 0.85rem;
+      transition: all 0.2s;
+    }
+
+    .難易度ボタン:hover {
+      border-color: #f0c040;
+      color: #f0c040;
+    }
+
+    .難易度ボタン.選択中 {
+      border-color: #f0c040;
+      color: #f0c040;
+      background: #f0c04022;
+    }
+  </style>
+</head>
+<body>
+
+<h1>🎾 テニスゲーム</h1>
+
+<div id="スコアボード">
+  <div class="スコアグループ">
+    <span class="プレイヤー名">あなた</span>
+    <span class="スコア数字" id="プレイヤースコア">0</span>
+  </div>
+  <div class="スコアグループ">
+    <span class="プレイヤー名" id="CPUラベル">CPU</span>
+    <span class="スコア数字" id="CPUスコア">0</span>
+  </div>
+</div>
+
+<canvas id="コート" width="800" height="500"></canvas>
+
+<div id="メッセージ表示">スペースキーを押してスタート</div>
+
+<div id="難易度エリア">
+  <span>難易度：</span>
+  <button class="難易度ボタン 選択中" data-難易度="ふつう">ふつう</button>
+  <button class="難易度ボタン" data-難易度="むずかしい">むずかしい</button>
+  <button class="難易度ボタン" data-難易度="かんたん">かんたん</button>
+</div>
+
+<div id="操作説明">
+  <span>↑ / W</span> でパドルを上へ　<span>↓ / S</span> でパドルを下へ<br>
+  <span>スペースキー</span> でスタート・一時停止
+</div>
+
+<script>
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //  定数・設定
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  const キャンバス = document.getElementById('コート');
+  const ctx = キャンバス.getContext('2d');
+
+  const 幅 = キャンバス.width;
+  const 高さ = キャンバス.height;
+
+  // パドルのサイズ
+  const パドル幅 = 14;
+  const パドル高さ = 90;
+  const パドル速度 = 7;
+
+  // ボールのサイズ
+  const ボール半径 = 9;
+
+  // 勝利点数
+  const 勝利点数 = 7;
+
+  // ゲーム状態
+  const 状態 = {
+    待機中: 'waiting',
+    プレイ中: 'playing',
+    一時停止: 'paused',
+    得点後: 'scored',
+    ゲームオーバー: 'gameover',
+  };
+
+  // 難易度設定（CPU応答速度の比率）
+  const 難易度設定 = {
+    かんたん: { CPU速度: 3.5, ボール速度倍率: 0.85 },
+    ふつう:   { CPU速度: 5.5, ボール速度倍率: 1.0  },
+    むずかしい: { CPU速度: 8.0, ボール速度倍率: 1.2  },
+  };
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //  ゲームの状態変数
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  let 現在の状態 = 状態.待機中;
+  let 選択難易度 = 'ふつう';
+
+  let プレイヤー = {
+    x: 20,
+    y: 高さ / 2 - パドル高さ / 2,
+    dy: 0,
+    スコア: 0,
+  };
+
+  let CPU = {
+    x: 幅 - 20 - パドル幅,
+    y: 高さ / 2 - パドル高さ / 2,
+    スコア: 0,
+  };
+
+  let ボール = {
+    x: 幅 / 2,
+    y: 高さ / 2,
+    dx: 0,
+    dy: 0,
+    速度: 6,
+  };
+
+  // エフェクト用
+  let ヒットエフェクト = [];
+  let 得点エフェクト = null;
+
+  // キー入力状態
+  const キー = { 上: false, 下: false };
+
+  // カウントダウン用
+  let カウントダウン = 0;
+  let カウントダウンタイマー = null;
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //  ボール初期化
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  function ボール初期化(最後に得点したのは = null) {
+    ボール.x = 幅 / 2;
+    ボール.y = 高さ / 2;
+
+    const 倍率 = 難易度設定[選択難易度].ボール速度倍率;
+    ボール.速度 = 6 * 倍率;
+
+    // 前回失点した側と逆方向に打ち出す
+    let 方向x = 最後に得点したのは === 'プレイヤー' ? 1 : -1;
+    if (最後に得点したのは === null) {
+      方向x = Math.random() > 0.5 ? 1 : -1;
+    }
+
+    const 角度 = (Math.random() * 60 - 30) * (Math.PI / 180);
+    ボール.dx = 方向x * ボール.速度 * Math.cos(角度);
+    ボール.dy = ボール.速度 * Math.sin(角度);
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //  ゲームリセット
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  function ゲームリセット() {
+    プレイヤー.y = 高さ / 2 - パドル高さ / 2;
+    プレイヤー.スコア = 0;
+    CPU.y = 高さ / 2 - パドル高さ / 2;
+    CPU.スコア = 0;
+    ヒットエフェクト = [];
+    得点エフェクト = null;
+    document.getElementById('プレイヤースコア').textContent = 0;
+    document.getElementById('CPUスコア').textContent = 0;
+    ボール初期化();
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //  カウントダウン開始
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  function カウントダウン開始(終了後コールバック) {
+    カウントダウン = 3;
+    現在の状態 = 状態.得点後;
+
+    if (カウントダウンタイマー) clearInterval(カウントダウンタイマー);
+    カウントダウンタイマー = setInterval(() => {
+      カウントダウン--;
+      if (カウントダウン <= 0) {
+        clearInterval(カウントダウンタイマー);
+        終了後コールバック();
+      }
+    }, 900);
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //  衝突判定（パドルとボール）
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  function パドル衝突判定(パドル, パドルY) {
+    // ボールがパドルの矩形と重なっているか
+    if (
+      ボール.x - ボール半径 < パドル.x + パドル幅 &&
+      ボール.x + ボール半径 > パドル.x &&
+      ボール.y - ボール半径 < パドルY + パドル高さ &&
+      ボール.y + ボール半径 > パドルY
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  // パドルのどこに当たったかで角度を変える
+  function バウンド処理(パドルY, 方向x) {
+    const パドル中心 = パドルY + パドル高さ / 2;
+    const 相対位置 = (ボール.y - パドル中心) / (パドル高さ / 2); // -1 〜 1
+    const 最大角度 = 65 * (Math.PI / 180);
+    const 角度 = 相対位置 * 最大角度;
+
+    // 速度を少し上げる（最大限界あり）
+    ボール.速度 = Math.min(ボール.速度 + 0.4, 18);
+
+    ボール.dx = 方向x * ボール.速度 * Math.cos(角度);
+    ボール.dy = ボール.速度 * Math.sin(角度);
+
+    // エフェクト追加
+    ヒットエフェクト.push({
+      x: ボール.x,
+      y: ボール.y,
+      半径: ボール半径 * 2,
+      透明度: 1.0,
+    });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //  更新処理
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  function 更新() {
+    if (現在の状態 !== 状態.プレイ中) return;
+
+    // ── プレイヤーパドル移動 ──
+    if (キー.上) プレイヤー.y -= パドル速度;
+    if (キー.下) プレイヤー.y += パドル速度;
+    // コート外に出ないよう制限
+    プレイヤー.y = Math.max(0, Math.min(高さ - パドル高さ, プレイヤー.y));
+
+    // ── CPU パドル AI ──
+    const CPU速度 = 難易度設定[選択難易度].CPU速度;
+    const CPUパドル中心 = CPU.y + パドル高さ / 2;
+    if (CPUパドル中心 < ボール.y - 8) {
+      CPU.y += CPU速度;
+    } else if (CPUパドル中心 > ボール.y + 8) {
+      CPU.y -= CPU速度;
+    }
+    CPU.y = Math.max(0, Math.min(高さ - パドル高さ, CPU.y));
+
+    // ── ボール移動 ──
+    ボール.x += ボール.dx;
+    ボール.y += ボール.dy;
+
+    // 上下の壁で反射
+    if (ボール.y - ボール半径 <= 0) {
+      ボール.y = ボール半径;
+      ボール.dy = Math.abs(ボール.dy);
+    } else if (ボール.y + ボール半径 >= 高さ) {
+      ボール.y = 高さ - ボール半径;
+      ボール.dy = -Math.abs(ボール.dy);
+    }
+
+    // ── プレイヤーパドルとの衝突 ──
+    if (ボール.dx < 0 && パドル衝突判定(プレイヤー, プレイヤー.y)) {
+      ボール.x = プレイヤー.x + パドル幅 + ボール半径;
+      バウンド処理(プレイヤー.y, 1);
+    }
+
+    // ── CPU パドルとの衝突 ──
+    if (ボール.dx > 0 && パドル衝突判定(CPU, CPU.y)) {
+      ボール.x = CPU.x - ボール半径;
+      バウンド処理(CPU.y, -1);
+    }
+
+    // ── 得点判定 ──
+    if (ボール.x + ボール半径 >= 幅) {
+      // CPUコート外に出た → プレイヤー得点
+      プレイヤー.スコア++;
+      document.getElementById('プレイヤースコア').textContent = プレイヤー.スコア;
+      得点エフェクト = { テキスト: 'ポイント！', 色: '#80d8ff', タイマー: 60 };
+      得点後処理('プレイヤー');
+
+    } else if (ボール.x - ボール半径 <= 0) {
+      // プレイヤーコート外に出た → CPU得点
+      CPU.スコア++;
+      document.getElementById('CPUスコア').textContent = CPU.スコア;
+      得点エフェクト = { テキスト: 'CPU ポイント', 色: '#ff8080', タイマー: 60 };
+      得点後処理('CPU');
+    }
+
+    // ── エフェクト更新 ──
+    ヒットエフェクト = ヒットエフェクト.filter(e => {
+      e.半径 += 2;
+      e.透明度 -= 0.08;
+      return e.透明度 > 0;
+    });
+
+    if (得点エフェクト) {
+      得点エフェクト.タイマー--;
+      if (得点エフェクト.タイマー <= 0) 得点エフェクト = null;
+    }
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //  得点後処理
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  function 得点後処理(得点者) {
+    現在の状態 = 状態.得点後;
+
+    // 勝利判定
+    if (プレイヤー.スコア >= 勝利点数) {
+      setTimeout(() => {
+        現在の状態 = 状態.ゲームオーバー;
+        メッセージ更新('あなたの勝利！ 🎉　スペースキーでもう一度');
+      }, 1200);
+      return;
+    }
+    if (CPU.スコア >= 勝利点数) {
+      setTimeout(() => {
+        現在の状態 = 状態.ゲームオーバー;
+        メッセージ更新('CPU の勝ち…　スペースキーでリトライ');
+      }, 1200);
+      return;
+    }
+
+    // 次のラリーへ
+    ボール初期化(得点者);
+    カウントダウン開始(() => {
+      現在の状態 = 状態.プレイ中;
+      メッセージ更新('');
+    });
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //  描画処理
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  function 描画() {
+    // 背景
+    ctx.fillStyle = '#16213e';
+    ctx.fillRect(0, 0, 幅, 高さ);
+
+    // センターライン（点線）
+    ctx.setLineDash([10, 12]);
+    ctx.strokeStyle = '#2a4a7a';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(幅 / 2, 0);
+    ctx.lineTo(幅 / 2, 高さ);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 上下の境界線
+    ctx.strokeStyle = '#2a4a7a';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, 2);
+    ctx.lineTo(幅, 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, 高さ - 2);
+    ctx.lineTo(幅, 高さ - 2);
+    ctx.stroke();
+
+    // ヒットエフェクト
+    for (const e of ヒットエフェクト) {
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, e.半径, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255, 220, 80, ${e.透明度})`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // プレイヤーパドル（グラデーション）
+    const プレイヤーグラデ = ctx.createLinearGradient(
+      プレイヤー.x, プレイヤー.y,
+      プレイヤー.x + パドル幅, プレイヤー.y
+    );
+    プレイヤーグラデ.addColorStop(0, '#40a0ff');
+    プレイヤーグラデ.addColorStop(1, '#80d8ff');
+    ctx.fillStyle = プレイヤーグラデ;
+    パドル描画(プレイヤー.x, プレイヤー.y);
+
+    // CPU パドル（グラデーション）
+    const CPUグラデ = ctx.createLinearGradient(
+      CPU.x, CPU.y,
+      CPU.x + パドル幅, CPU.y
+    );
+    CPUグラデ.addColorStop(0, '#ff6060');
+    CPUグラデ.addColorStop(1, '#ff9090');
+    ctx.fillStyle = CPUグラデ;
+    パドル描画(CPU.x, CPU.y);
+
+    // ボール
+    const ボールグラデ = ctx.createRadialGradient(
+      ボール.x - 2, ボール.y - 2, 1,
+      ボール.x, ボール.y, ボール半径
+    );
+    ボールグラデ.addColorStop(0, '#ffffff');
+    ボールグラデ.addColorStop(0.5, '#f0e060');
+    ボールグラデ.addColorStop(1, '#c8a000');
+    ctx.beginPath();
+    ctx.arc(ボール.x, ボール.y, ボール半径, 0, Math.PI * 2);
+    ctx.fillStyle = ボールグラデ;
+    ctx.fill();
+    // ボールのシャドウ
+    ctx.beginPath();
+    ctx.arc(ボール.x, ボール.y, ボール半径 + 2, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(240, 200, 0, 0.3)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // 得点エフェクト表示
+    if (得点エフェクト) {
+      const 透明度 = Math.min(1, 得点エフェクト.タイマー / 20);
+      ctx.save();
+      ctx.globalAlpha = 透明度;
+      ctx.font = 'bold 36px "Courier New"';
+      ctx.fillStyle = 得点エフェクト.色;
+      ctx.textAlign = 'center';
+      ctx.shadowColor = 得点エフェクト.色;
+      ctx.shadowBlur = 20;
+      ctx.fillText(得点エフェクト.テキスト, 幅 / 2, 高さ / 2 - 20);
+      ctx.restore();
+    }
+
+    // カウントダウン表示
+    if (現在の状態 === 状態.得点後 && カウントダウン > 0) {
+      ctx.save();
+      ctx.font = 'bold 72px "Courier New"';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+      ctx.textAlign = 'center';
+      ctx.shadowColor = '#ffffff';
+      ctx.shadowBlur = 30;
+      ctx.fillText(カウントダウン, 幅 / 2, 高さ / 2 + 60);
+      ctx.restore();
+    }
+
+    // ゲーム待機中・一時停止オーバーレイ
+    if (現在の状態 === 状態.待機中 || 現在の状態 === 状態.一時停止 || 現在の状態 === 状態.ゲームオーバー) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+      ctx.fillRect(0, 0, 幅, 高さ);
+    }
+  }
+
+  // 角丸パドル描画
+  function パドル描画(x, y) {
+    const r = 6;
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + パドル幅 - r, y);
+    ctx.quadraticCurveTo(x + パドル幅, y, x + パドル幅, y + r);
+    ctx.lineTo(x + パドル幅, y + パドル高さ - r);
+    ctx.quadraticCurveTo(x + パドル幅, y + パドル高さ, x + パドル幅 - r, y + パドル高さ);
+    ctx.lineTo(x + r, y + パドル高さ);
+    ctx.quadraticCurveTo(x, y + パドル高さ, x, y + パドル高さ - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //  メインループ
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  function ループ() {
+    更新();
+    描画();
+    requestAnimationFrame(ループ);
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //  メッセージ更新
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  function メッセージ更新(テキスト) {
+    document.getElementById('メッセージ表示').textContent = テキスト;
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //  キーボード入力
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  document.addEventListener('keydown', (e) => {
+    switch (e.key) {
+      case 'ArrowUp':
+      case 'w':
+      case 'W':
+        キー.上 = true;
+        e.preventDefault();
+        break;
+
+      case 'ArrowDown':
+      case 's':
+      case 'S':
+        キー.下 = true;
+        e.preventDefault();
+        break;
+
+      case ' ': // スペースキー
+        e.preventDefault();
+        スペースキー処理();
+        break;
+    }
+  });
+
+  document.addEventListener('keyup', (e) => {
+    switch (e.key) {
+      case 'ArrowUp':
+      case 'w':
+      case 'W':
+        キー.上 = false;
+        break;
+      case 'ArrowDown':
+      case 's':
+      case 'S':
+        キー.下 = false;
+        break;
+    }
+  });
+
+  function スペースキー処理() {
+    switch (現在の状態) {
+      case 状態.待機中:
+        ゲームリセット();
+        カウントダウン開始(() => {
+          現在の状態 = 状態.プレイ中;
+          メッセージ更新('');
+        });
+        メッセージ更新('');
+        break;
+
+      case 状態.プレイ中:
+        現在の状態 = 状態.一時停止;
+        メッセージ更新('一時停止中　スペースキーで再開');
+        break;
+
+      case 状態.一時停止:
+        現在の状態 = 状態.プレイ中;
+        メッセージ更新('');
+        break;
+
+      case 状態.ゲームオーバー:
+        ゲームリセット();
+        カウントダウン開始(() => {
+          現在の状態 = 状態.プレイ中;
+          メッセージ更新('');
+        });
+        メッセージ更新('');
+        break;
+    }
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //  難易度ボタン
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  document.querySelectorAll('.難易度ボタン').forEach(btn => {
+    btn.addEventListener('click', () => {
+      // ゲーム中以外のみ変更可能
+      if (現在の状態 === 状態.プレイ中 || 現在の状態 === 状態.得点後) return;
+
+      document.querySelectorAll('.難易度ボタン').forEach(b => b.classList.remove('選択中'));
+      btn.classList.add('選択中');
+      選択難易度 = btn.dataset['難易度'];
+    });
+  });
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //  マウスでパドル操作（オプション）
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  キャンバス.addEventListener('mousemove', (e) => {
+    if (現在の状態 !== 状態.プレイ中) return;
+    const rect = キャンバス.getBoundingClientRect();
+    const マウスY = e.clientY - rect.top;
+    // マウスY をパドル中心に合わせる
+    プレイヤー.y = Math.max(0, Math.min(高さ - パドル高さ, マウスY - パドル高さ / 2));
+  });
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //  ゲーム開始
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ボール初期化();
+  ループ();
+</script>
+</body>
+</html>
